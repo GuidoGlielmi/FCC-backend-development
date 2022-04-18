@@ -5,9 +5,11 @@
 
 'use strict';
 
+const http = require('http');
 var fs = require('fs');
 var express = require('express');
 var app = express();
+require('dotenv').config();
 
 if (!process.env.DISABLE_XORIGIN) {
   app.use(function (req, res, next) {
@@ -23,23 +25,92 @@ if (!process.env.DISABLE_XORIGIN) {
 }
 
 app.use('/public', express.static(process.cwd() + '/public'));
+app.use(express.static(__dirname + '/public'));
+
+app.get('/', function (req, res) {
+  const path = __dirname + '/views/index.html';
+  res.sendFile(path);
+  //res.sendFile(process.cwd() + '/views/index.html');
+});
+
+/* An HTML server usually has one or more directories that are accessible by the user. You can place there the static assets needed by your application (stylesheets, scripts, images).
+In Express, you can put in place this functionality using the middleware:
+express.static(path)
+A middleware needs to be mounted using the method app.use(path, middlewareFunction). The first path argument is optional. If you don’t pass it, the middleware will be executed for all requests.
+*/
+
+/* 
+While an HTML server serves HTML, an API serves data. A REST (REpresentational State Transfer) API allows data exchange in a simple way, without the need for clients to know any detail about the server.
+*/
 
 app.route('/_api/package.json').get(function (req, res, next) {
-  console.log('requested');
   fs.readFile(__dirname + '/package.json', function (err, data) {
     if (err) return next(err);
     res.type('txt').send(data.toString());
   });
 });
-
-app.route('/').get(function (req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
+/* .json -> Behind the scenes, it converts a valid JavaScript object into a string, then sets the appropriate headers to tell your browser that you are serving JSON, and sends the data back.
+The process.env object is a global Node object, and variables are passed as strings.
+The .env is a shell file, so you don’t need to wrap names or values in quotes.
+There cannot be space around the equals sign in it.
+dotenv package loads environment variables from your .env file into process.env and
+require('dotenv').config()
+*/
+app.get('/json', (req, res) => {
+  const msg = 'Hello!';
+  console.log(process.env.MESSAGE_STYLE);
+  return res.json({
+    salutation: process.env.MESSAGE_STYLE === 'uppercase' ? msg.toUpperCase() : msg,
+  });
 });
 
-// Respond not found to all the wrong routes
-app.use(function (req, res, next) {
-  res.status(404);
-  res.type('txt').send('Not found');
+/* 
+to mount a middleware function at root level, you can use the app.use(<mware-function>) method ('use' is for ALL requests).
+Middlewares can be mounted at a specific route using app.<METHOD>(path, middlewareFunction) and also be chained inside route definition:
+app.get('/user', function(req, res, next) {
+  {...}
+  next();
+}, function(req, res) {
+  res.send(req.user);
+});
+
+app.route(path).get(handler).post(handler) -> This syntax allows you to chain different verb handlers on the same path route.
+
+To parse the data coming from POST requests, the body-parser package is used.
+*/
+
+app.get('/first-middleware', (req, res, next) => {
+  console.log(req.method, req.path, req.ip);
+  next();
+});
+app.get('/echo/:word', (req, res) => {
+  res.json({ echo: req.params.word });
+});
+app.get(
+  '/time',
+  function (req, res, next) {
+    req.time = new Date().toString();
+    next();
+  },
+  function (req, res) {
+    res.send(
+      `<h1 style=text-align:center;color:green;>${req.time}</h1> <p>And some query ${req.query.query}</p>`,
+    );
+  },
+);
+
+app.use(
+  express.urlencoded({
+    // library to parse body
+    extended: true,
+  }),
+);
+
+app.use(express.json()); // middleware to parse json
+
+app.post('/todos', (req, res) => {
+  console.log(req.body.todo);
+  res.send({ [req.body.todo]: Object.keys(req.body)[0] });
 });
 
 // Error Middleware
@@ -52,7 +123,105 @@ app.use(function (err, req, res, next) {
   }
 });
 
+// Respond not found to all the wrong routes
+app.use(function (req, res) {
+  res.status(404);
+  res.type('txt').send('Not found');
+});
+
 //Listen on port set in environment variable or default to 3000
 const listener = app.listen(process.env.PORT || 3000, function () {
-  console.log('Node.js listening on port ' + listener.address().port);
+  console.log('Express.js listening on port ' + listener.address().port);
 });
+
+// ----------------------------------------------------------------------------------------------------
+const port = process.env.PORT || 3001;
+
+const server = http.createServer((req, res) => {
+  res.statusCode = 200;
+  console.log(req.url);
+  if (req.url === '/todos') {
+    const data = JSON.stringify({
+      todo: 'Buy the milk',
+    });
+    const postOptions = {
+      hostname: 'localhost',
+      port: 3000,
+      path: '/todos',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', // necessary to use, the default is text
+        'Content-Length': data.length,
+      },
+    };
+    const specificReq = http.request(postOptions, (otherRes) => {
+      otherRes.on('data', (d) => {
+        //d is a buffer
+        process.stdout.write(d);
+        res.end(d.toString() + ' + Some text appended by 3001!'); // not until the response from the request arrives, the server response to the first request
+      });
+    });
+    specificReq.on('error', (error) => {
+      console.error(error);
+    });
+    specificReq.write(data);
+    specificReq.end();
+  }
+});
+
+server.listen(port, () => {
+  console.log(`Vanilla Node.js server running at port ${port}`);
+});
+
+/*
+Whenever a new request is received, the request event is called, providing two objects: a request (an http.IncomingMessage object) and a response (an http.ServerResponse object).
+The simplest way to perform an HTTP request using Node.js is to use the Axios library. But it is possible just using the Node.js standard modules:
+*/
+/* 
+MAKE HTTP REQUESTS ON NODEJS
+const getOptions = {
+  hostname: 'localhost',
+  port: 3000,
+  path: '/time',
+  method: 'GET',
+};
+const specificReq = http.request(getOptions, (res) => {
+  res.on('data', (d) => {
+    process.stdout.write(d.toString()); // like console.log()
+  });
+});
+specificReq.on('error', (error) => {
+  console.error(error);
+});
+specificReq.end();
+
+// ---> POST REQUEST
+const data = JSON.stringify({
+  todo: 'Buy the milk',
+});
+const postOptions = {
+  hostname: 'localhost',
+  port: 3000,
+  path: '/todos',
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Content-Length': data.length,
+  },
+};
+const req = http.request(postOptions, (res) => {
+  console.log(`statusCode: ${res.statusCode} -> Received from 3000`);
+  res.on('data', (d) => {
+    process.stdout.write(
+      `${Object.keys(JSON.parse(d))[0]}: ${
+        JSON.parse(d)[Object.keys(JSON.parse(d))[0]]
+      } -> response received from 3000`,
+    );
+  });
+});
+req.on('error', (error) => {
+  console.error(error);
+});
+req.write(data);
+req.end();
+*/
