@@ -2,6 +2,11 @@
   "name": "fcc-learn-npm-package-json",
   "author": "Jane Doe",
   "description": "FreeCodeCamp backend course app",
+  "keywords": [
+    "FreeCodeCamp",
+    "backend",
+    "certification"
+  ],
   "dependencies": {
     "express": "^4.14.0"
   },
